@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:loveace_updater/inno_uninstaller.dart';
 import 'package:loveace_updater/update_journal.dart';
 import 'package:loveace_updater/update_plan.dart';
 
@@ -53,6 +54,80 @@ void main() {
       )),
       throwsStateError,
     );
+  });
+
+  test('copies top-level Inno uninstaller files into staging', () async {
+    final root = await Directory.systemTemp.createTemp('loveace_updater_test_');
+    addTearDown(() => root.delete(recursive: true));
+    final backupDir = Directory('${root.path}${Platform.pathSeparator}backup');
+    final stagingDir = Directory(
+      '${root.path}${Platform.pathSeparator}staging',
+    );
+    final nestedDir = Directory(
+      '${backupDir.path}${Platform.pathSeparator}nested',
+    );
+    await nestedDir.create(recursive: true);
+    await File(
+      '${backupDir.path}${Platform.pathSeparator}unins000.exe',
+    ).writeAsString('exe');
+    await File(
+      '${backupDir.path}${Platform.pathSeparator}unins000.dat',
+    ).writeAsString('dat');
+    await File(
+      '${backupDir.path}${Platform.pathSeparator}unins001.txt',
+    ).writeAsString('txt');
+    await File(
+      '${nestedDir.path}${Platform.pathSeparator}unins999.exe',
+    ).writeAsString('nested');
+
+    final result = await copyInnoUninstallerFiles(
+      from: backupDir,
+      to: stagingDir,
+    );
+
+    expect(result.copiedCount, 2);
+    expect(
+      await File(
+        '${stagingDir.path}${Platform.pathSeparator}unins000.exe',
+      ).readAsString(),
+      'exe',
+    );
+    expect(
+      await File(
+        '${stagingDir.path}${Platform.pathSeparator}unins000.dat',
+      ).readAsString(),
+      'dat',
+    );
+    expect(
+      await File(
+        '${stagingDir.path}${Platform.pathSeparator}unins001.txt',
+      ).exists(),
+      isFalse,
+    );
+    expect(
+      await File(
+        '${stagingDir.path}${Platform.pathSeparator}unins999.exe',
+      ).exists(),
+      isFalse,
+    );
+  });
+
+  test('does not fail when Inno uninstaller files are missing', () async {
+    final root = await Directory.systemTemp.createTemp('loveace_updater_test_');
+    addTearDown(() => root.delete(recursive: true));
+    final backupDir = Directory('${root.path}${Platform.pathSeparator}backup');
+    final stagingDir = Directory(
+      '${root.path}${Platform.pathSeparator}staging',
+    );
+    await backupDir.create(recursive: true);
+
+    final result = await copyInnoUninstallerFiles(
+      from: backupDir,
+      to: stagingDir,
+    );
+
+    expect(result.foundFiles, isFalse);
+    expect(await stagingDir.exists(), isTrue);
   });
 }
 

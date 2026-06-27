@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:loveace_updater/inno_uninstaller.dart';
 import 'package:loveace_updater/update_journal.dart';
 import 'package:loveace_updater/update_plan.dart';
 
@@ -71,6 +72,15 @@ Future<void> _replaceInstallDir(UpdatePlan plan) async {
   await _deleteDirectory(plan.backupDir);
   await plan.backupDir.parent.create(recursive: true);
   await plan.installDir.rename(plan.backupDir.path);
+  final uninstallerResult = await copyInnoUninstallerFiles(
+    from: plan.backupDir,
+    to: plan.stagingDir,
+  );
+  if (!uninstallerResult.foundFiles) {
+    stderr.writeln(
+      'Warning: Inno uninstaller files were not found in ${plan.backupDir.path}.',
+    );
+  }
   await plan.stagingDir.rename(plan.installDir.path);
 }
 
