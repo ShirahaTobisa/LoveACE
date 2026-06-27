@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
@@ -535,7 +536,7 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
       unawaited(
         Future<void>.delayed(
           const Duration(milliseconds: 500),
-          SystemNavigator.pop,
+          () => exit(0),
         ),
       );
     } catch (e) {
