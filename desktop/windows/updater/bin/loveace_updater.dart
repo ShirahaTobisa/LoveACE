@@ -71,6 +71,8 @@ Future<void> _replaceInstallDir(UpdatePlan plan) async {
   await _deleteDirectory(plan.backupDir);
   await plan.backupDir.parent.create(recursive: true);
   await plan.installDir.rename(plan.backupDir.path);
+  // TEMP-TEST-FAILURE: force rollback after backup is created.
+  throw StateError('TEMP-TEST-FAILURE forced rollback after backup rename');
   await plan.stagingDir.rename(plan.installDir.path);
 }
 
