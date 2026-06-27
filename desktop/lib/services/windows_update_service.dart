@@ -323,7 +323,7 @@ class WindowsUpdateService {
         '-ExecutionPolicy',
         'Bypass',
         '-Command',
-        r'Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force',
+        r'& { param($zipPath, $destinationPath) Expand-Archive -LiteralPath $zipPath -DestinationPath $destinationPath -Force }',
         packageFile.path,
         targetDir.path,
       ],
