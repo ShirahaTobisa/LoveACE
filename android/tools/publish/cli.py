@@ -14,7 +14,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from config import get_settings
-from manifest import Announcement, ChangelogEntry, LoveACEManifest, OTA, PlatformRelease
+from manifest import Announcement, ChangelogEntry, LoveACEManifest, OTA, PlatformRelease, UpdatePackage
 from s3_client import S3Client
 
 PLATFORMS = ["android", "ios", "windows", "macos", "linux"]
@@ -39,6 +39,14 @@ def get_file_md5(file_path: str) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             md5.update(chunk)
     return md5.hexdigest()
+
+
+def get_file_sha256(file_path: str) -> str:
+    sha = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha.update(chunk)
+    return sha.hexdigest()
 
 
 def load_manifest(client: S3Client) -> LoveACEManifest:
@@ -192,6 +200,7 @@ def release(
     version: str = typer.Option(..., "--version", "-v", help="版本号"),
     platform: str = typer.Option(..., "--platform", "-p", help="平台 (android/ios/windows/macos/linux)"),
     file: Path = typer.Option(..., "--file", "-f", help="安装包路径"),
+    package_file: Optional[Path] = typer.Option(None, "--package-file", help="Windows 内部替换 zip 包路径"),
     force: bool = typer.Option(False, "--force", help="该平台强制更新"),
     content: str = typer.Option("", "--content", "-c", help="OTA 弹窗内容（所有平台共享）"),
     changelog: str = typer.Option("", "--changelog", help="本次更新日志"),
@@ -208,18 +217,38 @@ def release(
     if not file.exists():
         console.print(f"[red]❌ 文件不存在: {file}[/]")
         raise typer.Exit(1)
+    if package_file and not package_file.exists():
+        console.print(f"[red]❌ 内部更新包不存在: {package_file}[/]")
+        raise typer.Exit(1)
+    if package_file and platform != "windows":
+        console.print("[red]❌ --package-file 仅支持 windows 平台[/]")
+        raise typer.Exit(1)
 
     client = S3Client()
     manifest = load_manifest(client)
 
     # 计算 MD5
     file_md5 = get_file_md5(str(file))
+    file_sha256 = get_file_sha256(str(file))
     console.print(f"[dim]文件 MD5: {file_md5}[/]")
+    console.print(f"[dim]文件 SHA256: {file_sha256}[/]")
 
     # 上传安装包
     s3_key = f"loveace/releases/{platform}/{version}/{file.name}"
     with console.status(f"[bold blue]上传 {file.name}..."):
         download_url = client.upload_file(str(file), s3_key)
+
+    package_info = None
+    if package_file:
+        package_sha256 = get_file_sha256(str(package_file))
+        package_key = f"loveace/releases/{platform}/{version}/{package_file.name}"
+        with console.status(f"[bold blue]上传 {package_file.name}..."):
+            package_url = client.upload_file(str(package_file), package_key)
+        package_info = UpdatePackage(
+            url=package_url,
+            sha256=package_sha256,
+            enabled=False,
+        )
 
     # 构建 changelog
     changelogs = []
@@ -252,6 +281,8 @@ def release(
         force_ota=force,
         url=download_url,
         md5=file_md5,
+        sha256=file_sha256,
+        package=package_info,
     )
     setattr(ota, platform, platform_release)
 
@@ -263,8 +294,10 @@ def release(
         f"[cyan]版本:[/] {version}\n"
         f"[cyan]平台:[/] {platform}\n"
         f"[cyan]MD5:[/] {file_md5}\n"
+        f"[cyan]SHA256:[/] {file_sha256}\n"
         f"[cyan]强制更新:[/] {'是' if force else '否'}\n"
-        f"[cyan]下载地址:[/] {download_url}",
+        f"[cyan]下载地址:[/] {download_url}\n"
+        f"[cyan]内部包:[/] {package_info.url if package_info else '-'}",
         title="OTA 发布",
     ))
     print(f"[dim]Manifest URL: {url}[/]")

@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,7 +65,7 @@ class ManifestProvider extends ChangeNotifier {
     if (release == null) return false;
 
     // 比较版本号（使用平台特定的版本号）
-    return _isNewerVersion(release.version, currentVersion);
+    return isNewerVersion(release.version, currentVersion);
   }
 
   /// 是否为强制更新（使用平台特定的强制更新标志）
@@ -163,7 +165,7 @@ class ManifestProvider extends ChangeNotifier {
   /// 比较版本号，判断 newVersion 是否比 currentVersion 新
   ///
   /// 版本号格式: major.minor.patch (例如 1.0.1)
-  bool _isNewerVersion(String newVersion, String currentVersion) {
+  static bool isNewerVersion(String newVersion, String currentVersion) {
     try {
       final newParts = newVersion.split('.').map(int.parse).toList();
       final currentParts = currentVersion.split('.').map(int.parse).toList();

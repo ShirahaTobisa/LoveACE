@@ -2,6 +2,8 @@ import hashlib
 from typing import Optional
 from pydantic import BaseModel, Field, computed_field
 
+# Keep this model in sync with desktop/lib/models/manifest_model.dart.
+
 
 class Announcement(BaseModel):
     """公告模型"""
@@ -23,6 +25,13 @@ class ChangelogEntry(BaseModel):
     changes: str = Field(..., description="更新内容")
 
 
+class UpdatePackage(BaseModel):
+    """Windows 内部替换 OTA 包信息。"""
+    url: str = Field(..., description="内部替换包下载地址")
+    sha256: str = Field(..., description="内部替换包 SHA256")
+    enabled: bool = Field(default=False, description="远程 kill-switch，默认关闭")
+
+
 class PlatformRelease(BaseModel):
     """单平台发布信息
     
@@ -34,7 +43,9 @@ class PlatformRelease(BaseModel):
     force_ota: bool = Field(default=False, description="该平台是否强制更新")
     url: str = Field(..., description="下载地址或 Web App 地址")
     md5: Optional[str] = Field(default=None, description="安装包 MD5（web 类型无需填写）")
+    sha256: Optional[str] = Field(default=None, description="安装包 SHA256")
     type: str = Field(default="native", description="发布类型: native（安装包）或 web（Web App 跳转）")
+    package: Optional[UpdatePackage] = Field(default=None, description="内部替换 OTA 包")
 
 
 class OTA(BaseModel):

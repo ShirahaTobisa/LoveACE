@@ -2,6 +2,8 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'manifest_model.g.dart';
 
+// Keep this model in sync with android/tools/publish/manifest.py.
+
 /// 公告模型
 @JsonSerializable()
 class Announcement {
@@ -59,21 +61,50 @@ class PlatformRelease {
   final String url;
   @JsonKey(defaultValue: '')
   final String md5;
+  @JsonKey(defaultValue: '')
+  final String sha256;
   @JsonKey(defaultValue: 'native')
   final String type;
+  final UpdatePackage? package;
 
   PlatformRelease({
     required this.version,
     required this.forceOta,
     required this.url,
     required this.md5,
+    this.sha256 = '',
     this.type = 'native',
+    this.package,
   });
 
   factory PlatformRelease.fromJson(Map<String, dynamic> json) =>
       _$PlatformReleaseFromJson(json);
 
   Map<String, dynamic> toJson() => _$PlatformReleaseToJson(this);
+}
+
+/// Windows 内部替换 OTA 包信息。
+///
+/// enabled 默认为 false，是远程 kill-switch。未显式开启时客户端必须降级到安装器。
+@JsonSerializable()
+class UpdatePackage {
+  @JsonKey(defaultValue: '')
+  final String url;
+  @JsonKey(defaultValue: '')
+  final String sha256;
+  @JsonKey(defaultValue: false)
+  final bool enabled;
+
+  UpdatePackage({
+    required this.url,
+    required this.sha256,
+    this.enabled = false,
+  });
+
+  factory UpdatePackage.fromJson(Map<String, dynamic> json) =>
+      _$UpdatePackageFromJson(json);
+
+  Map<String, dynamic> toJson() => _$UpdatePackageToJson(this);
 }
 
 /// OTA 更新模型

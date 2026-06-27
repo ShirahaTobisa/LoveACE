@@ -36,7 +36,11 @@ PlatformRelease _$PlatformReleaseFromJson(Map<String, dynamic> json) =>
       forceOta: json['force_ota'] as bool? ?? false,
       url: json['url'] as String? ?? '',
       md5: json['md5'] as String? ?? '',
+      sha256: json['sha256'] as String? ?? '',
       type: json['type'] as String? ?? 'native',
+      package: json['package'] == null
+          ? null
+          : UpdatePackage.fromJson(json['package'] as Map<String, dynamic>),
     );
 
 Map<String, dynamic> _$PlatformReleaseToJson(PlatformRelease instance) =>
@@ -45,7 +49,23 @@ Map<String, dynamic> _$PlatformReleaseToJson(PlatformRelease instance) =>
       'force_ota': instance.forceOta,
       'url': instance.url,
       'md5': instance.md5,
+      'sha256': instance.sha256,
       'type': instance.type,
+      'package': instance.package?.toJson(),
+    };
+
+UpdatePackage _$UpdatePackageFromJson(Map<String, dynamic> json) =>
+    UpdatePackage(
+      url: json['url'] as String? ?? '',
+      sha256: json['sha256'] as String? ?? '',
+      enabled: json['enabled'] as bool? ?? false,
+    );
+
+Map<String, dynamic> _$UpdatePackageToJson(UpdatePackage instance) =>
+    <String, dynamic>{
+      'url': instance.url,
+      'sha256': instance.sha256,
+      'enabled': instance.enabled,
     };
 
 OTA _$OTAFromJson(Map<String, dynamic> json) => OTA(
@@ -74,12 +94,12 @@ OTA _$OTAFromJson(Map<String, dynamic> json) => OTA(
 Map<String, dynamic> _$OTAToJson(OTA instance) => <String, dynamic>{
   'content': instance.content,
   'notice': instance.notice,
-  'changelog': instance.changelog,
-  'android': instance.android,
-  'ios': instance.ios,
-  'windows': instance.windows,
-  'macos': instance.macos,
-  'linux': instance.linux,
+  'changelog': instance.changelog.map((e) => e.toJson()).toList(),
+  'android': instance.android?.toJson(),
+  'ios': instance.ios?.toJson(),
+  'windows': instance.windows?.toJson(),
+  'macos': instance.macos?.toJson(),
+  'linux': instance.linux?.toJson(),
 };
 
 LoveACEManifest _$LoveACEManifestFromJson(Map<String, dynamic> json) =>
@@ -94,6 +114,6 @@ LoveACEManifest _$LoveACEManifestFromJson(Map<String, dynamic> json) =>
 
 Map<String, dynamic> _$LoveACEManifestToJson(LoveACEManifest instance) =>
     <String, dynamic>{
-      'announcement': instance.announcement,
-      'ota': instance.ota,
+      'announcement': instance.announcement?.toJson(),
+      'ota': instance.ota?.toJson(),
     };

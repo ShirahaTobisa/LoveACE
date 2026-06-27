@@ -25,8 +25,25 @@ on:
         type: boolean
 
 jobs:
+  publish-contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android/tools/publish
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Test manifest contract
+        run: uv run python test_manifest_contract.py
+
   build:
     runs-on: windows-latest
+    needs: publish-contract
     outputs:
       version: ${{ steps.version.outputs.version }}
       artifact_name: ${{ steps.version.outputs.artifact_name }}
@@ -61,8 +78,27 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Build updater helper
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build
+          Push-Location windows\updater
+          dart pub get
+          dart compile exe bin\loveace_updater.dart -o ..\..\build\loveace_updater.exe
+          Pop-Location
+
       - name: Analyze desktop project
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Test desktop project
+        run: flutter test
+
+      - name: Test updater helper
+        shell: pwsh
+        run: |
+          Push-Location windows\updater
+          dart test
+          Pop-Location
 
       - name: Build Windows release
         shell: pwsh
@@ -76,6 +112,11 @@ jobs:
           --dart-define=ANALYTICS_API_KEY=$env:ANALYTICS_API_KEY
           --dart-define=ANALYTICS_SIGNING_SECRET=$env:ANALYTICS_SIGNING_SECRET
           --dart-define=ANALYTICS_HASH_SALT=$env:ANALYTICS_HASH_SALT
+
+      - name: Copy updater helper into release
+        shell: pwsh
+        run: |
+          Copy-Item '${{ github.workspace }}\desktop\build\loveace_updater.exe' '${{ github.workspace }}\desktop\build\windows\x64\runner\Release\loveace_updater.exe' -Force
 
       - name: Install Inno Setup
         shell: pwsh
@@ -111,11 +152,27 @@ jobs:
           $env:OUTPUT_DIR = $outputDir
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /DAPP_VERSION="$env:APP_VERSION" /DBUILD_DIR="$buildDir" /DOUTPUT_DIR="$outputDir" 'windows\inno-ci.iss'
 
+      - name: Create internal update zip
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $releaseDir = '${{ github.workspace }}\desktop\build\windows\x64\runner\Release'
+          $zipDir = '${{ github.workspace }}\desktop\update-package'
+          New-Item -ItemType Directory -Force -Path $zipDir
+          $zipItems = Get-ChildItem -Path $releaseDir | Where-Object { $_.Name -ne 'vc_redist.x64.exe' }
+          Compress-Archive -Path $zipItems.FullName -DestinationPath "$zipDir\loveace-$version-win-x64.zip" -Force
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.version.outputs.artifact_name }}
           path: desktop/installer/loveace-${{ steps.version.outputs.version }}-setup.exe
+
+      - name: Upload internal update package artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}-package
+          path: desktop/update-package/loveace-${{ steps.version.outputs.version }}-win-x64.zip
 
       - name: Confirm dry run
         run: |
@@ -138,6 +195,12 @@ jobs:
           name: ${{ needs.build.outputs.artifact_name }}
           path: ./installer
 
+      - name: Download internal update package artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}-package
+          path: ./package
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
@@ -154,6 +217,7 @@ jobs:
             --version "${{ needs.build.outputs.version }}" \
             --platform windows \
             --file "../../../installer/loveace-${{ needs.build.outputs.version }}-setup.exe" \
+            --package-file "../../../package/loveace-${{ needs.build.outputs.version }}-win-x64.zip" \
             --content "${{ inputs.content }}" \
             --changelog "${{ inputs.changelog }}" \
             ${{ inputs.force && '--force' || '' }}

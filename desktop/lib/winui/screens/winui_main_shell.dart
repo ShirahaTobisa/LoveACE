@@ -4,6 +4,8 @@ import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/manifest_provider.dart';
 import '../../services/analytics_service.dart';
+import '../../services/windows_update_journal.dart';
+import '../../services/windows_update_service.dart';
 import '../widgets/winui_background.dart';
 import '../widgets/winui_ota_dialog.dart';
 import '../widgets/winui_announcement_dialog.dart';
@@ -74,6 +76,7 @@ class _WinUIMainShellState extends State<WinUIMainShell> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _trackScreen(0);
+      _checkWindowsUpdateJournal();
       _checkManifest();
     });
   }
@@ -87,6 +90,40 @@ class _WinUIMainShellState extends State<WinUIMainShell> {
     if (index >= 0 && index < _pageNames.length) {
       AnalyticsService.instance.trackScreen(_pageNames[index]);
     }
+  }
+
+  Future<void> _checkWindowsUpdateJournal() async {
+    final journal = await WindowsUpdateService.readJournal();
+    if (!mounted || journal == null) return;
+
+    if (journal.state == WindowsUpdateJournalState.done) {
+      await WindowsUpdateService.clearJournal();
+      return;
+    }
+
+    await WindowsUpdateService.clearJournal();
+    if (!mounted) return;
+
+    final message = switch (journal.state) {
+      WindowsUpdateJournalState.failed => '上次 Windows 更新失败，已尝试回滚并保留安装器更新入口。',
+      WindowsUpdateJournalState.pending => '上次 Windows 更新未完成，已保留安装器更新入口。',
+      WindowsUpdateJournalState.done => 'Windows 更新已完成。',
+    };
+
+    displayInfoBar(
+      context,
+      builder: (context, close) => InfoBar(
+        title: const Text('更新未完成'),
+        content: Text(
+          journal.error?.isNotEmpty == true
+              ? '$message${journal.error}'
+              : message,
+        ),
+        severity: InfoBarSeverity.warning,
+        isLong: true,
+        onClose: close,
+      ),
+    );
   }
 
   /// 检查 Manifest（公告和 OTA 更新）

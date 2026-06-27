@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import '../../models/manifest_model.dart';
 import '../../services/analytics_service.dart';
 import '../../services/logger_service.dart';
+import '../../services/windows_update_service.dart';
+import '../../services/windows_update_strategy.dart';
 
 /// WinUI 风格的 OTA 更新对话框
 ///
 /// 使用 fluent_ui 的 ContentDialog 显示更新信息
 /// 支持强制更新和可选更新
-class WinUIOTADialog extends StatelessWidget {
+class WinUIOTADialog extends StatefulWidget {
   final OTA ota;
   final String currentVersion;
   final String platform;
@@ -23,14 +27,65 @@ class WinUIOTADialog extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  State<WinUIOTADialog> createState() => _WinUIOTADialogState();
+
+  /// 显示 OTA 更新对话框
+  static Future<void> show(
+    BuildContext context, {
+    required OTA ota,
+    required String currentVersion,
+    required String platform,
+    VoidCallback? onDismiss,
+  }) {
     final release = ota.getPlatformRelease(platform);
+    final isForceUpdate = release?.forceOta ?? false;
+
+    return showDialog(
+      context: context,
+      barrierDismissible: !isForceUpdate,
+      builder: (context) => WinUIOTADialog(
+        ota: ota,
+        currentVersion: currentVersion,
+        platform: platform,
+        onDismiss: onDismiss,
+      ),
+    );
+  }
+}
+
+class _WinUIOTADialogState extends State<WinUIOTADialog> {
+  bool _isDownloading = false;
+  double _downloadProgress = 0;
+  bool _installDirWritable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCapabilities();
+  }
+
+  Future<void> _loadCapabilities() async {
+    final writable = await WindowsUpdateService.isInstallDirectoryWritable();
+    if (!mounted) return;
+    setState(() => _installDirWritable = writable);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final release = widget.ota.getPlatformRelease(widget.platform);
     if (release == null) {
       return const SizedBox.shrink();
     }
 
     final isForceUpdate = release.forceOta;
     final theme = FluentTheme.of(context);
+    final strategy = decideWindowsUpdateStrategy(
+      release: release,
+      capabilities: WindowsUpdateCapabilities(
+        isWindows: WindowsUpdateService.isSupported,
+        installDirWritable: _installDirWritable,
+      ),
+    );
 
     return ContentDialog(
       title: Row(
@@ -42,7 +97,7 @@ class WinUIOTADialog extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
-              FluentIcons.system,
+              FluentIcons.sync,
               color: theme.accentColor,
               size: 20,
             ),
@@ -58,22 +113,22 @@ class WinUIOTADialog extends StatelessWidget {
           children: [
             _buildVersionInfo(context, theme, release.version),
             const SizedBox(height: 20),
-            if (ota.content.isNotEmpty) ...[
+            if (widget.ota.content.isNotEmpty) ...[
               _buildSectionTitle(theme, '更新内容'),
               const SizedBox(height: 10),
-              _buildContentBox(theme, ota.content),
+              _buildContentBox(theme, widget.ota.content),
               const SizedBox(height: 20),
             ],
-            if (ota.notice.isNotEmpty) ...[
+            if (widget.ota.notice.isNotEmpty) ...[
               InfoBar(
                 title: const Text('更新提示'),
-                content: Text(ota.notice),
+                content: Text(widget.ota.notice),
                 severity: InfoBarSeverity.warning,
                 isLong: true,
               ),
               const SizedBox(height: 20),
             ],
-            if (ota.changelog.isNotEmpty) ...[
+            if (widget.ota.changelog.isNotEmpty) ...[
               _buildSectionTitle(theme, '更新日志'),
               const SizedBox(height: 10),
               _buildChangelogBox(context, theme),
@@ -81,9 +136,16 @@ class WinUIOTADialog extends StatelessWidget {
             ],
             _buildSectionTitle(theme, '下载链接'),
             const SizedBox(height: 10),
-            _buildDownloadLinkBox(context, theme, release.url),
+            _buildDownloadLinkBox(context, theme, release.url, strategy),
             const SizedBox(height: 20),
-            if (release.md5.isNotEmpty) _buildMd5Box(theme, release.md5),
+            if (release.sha256.isNotEmpty)
+              _buildHashBox(theme, 'SHA256 校验值', release.sha256)
+            else if (release.md5.isNotEmpty)
+              _buildHashBox(theme, 'MD5 校验值', release.md5),
+            if (_isDownloading) ...[
+              const SizedBox(height: 20),
+              _buildDownloadProgress(theme),
+            ],
             if (isForceUpdate) ...[
               const SizedBox(height: 20),
               _buildForceUpdateWarning(),
@@ -94,23 +156,31 @@ class WinUIOTADialog extends StatelessWidget {
       actions: [
         if (!isForceUpdate)
           Button(
-            onPressed: () {
+            onPressed: _isDownloading ? null : () {
               Navigator.pop(context);
-              onDismiss?.call();
+              widget.onDismiss?.call();
             },
             child: const Text('稍后更新'),
           ),
         FilledButton(
-          onPressed: () {
-            AnalyticsService.instance.trackOtaUpdateClick(currentVersion, release.version);
-            _copyToClipboard(context, release.url);
-          },
-          child: const Row(
+          onPressed: _isDownloading
+              ? null
+              : () {
+                  AnalyticsService.instance.trackOtaUpdateClick(
+                    widget.currentVersion,
+                    release.version,
+                  );
+                  _runUpdateAction(context, release, strategy);
+                },
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(FluentIcons.copy, size: 16),
-              SizedBox(width: 8),
-              Text('复制链接'),
+              Icon(
+                _actionIcon(strategy),
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Text(_actionLabel(strategy)),
             ],
           ),
         ),
@@ -143,7 +213,7 @@ class WinUIOTADialog extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  currentVersion,
+                  widget.currentVersion,
                   style: theme.typography.bodyLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -227,7 +297,7 @@ class WinUIOTADialog extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: ota.changelog.take(3).map((entry) {
+        children: widget.ota.changelog.take(3).map((entry) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Column(
@@ -254,7 +324,11 @@ class WinUIOTADialog extends StatelessWidget {
   }
 
   Widget _buildDownloadLinkBox(
-      BuildContext context, FluentThemeData theme, String url) {
+    BuildContext context,
+    FluentThemeData theme,
+    String url,
+    UpdateStrategy strategy,
+  ) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -276,7 +350,7 @@ class WinUIOTADialog extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '选择复制，或点击下方按钮复制后在浏览器打开',
+            _downloadHelpText(strategy),
             style: theme.typography.caption?.copyWith(
               color: theme.inactiveColor,
             ),
@@ -286,7 +360,7 @@ class WinUIOTADialog extends StatelessWidget {
     );
   }
 
-  Widget _buildMd5Box(FluentThemeData theme, String md5) {
+  Widget _buildHashBox(FluentThemeData theme, String title, String hash) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -300,14 +374,14 @@ class WinUIOTADialog extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'MD5 校验值',
+            title,
             style: theme.typography.caption?.copyWith(
               color: theme.inactiveColor,
             ),
           ),
           const SizedBox(height: 6),
           SelectableText(
-            md5,
+            hash,
             style: theme.typography.caption?.copyWith(
               fontFamily: 'monospace',
               color: theme.inactiveColor,
@@ -328,6 +402,186 @@ class WinUIOTADialog extends StatelessWidget {
     );
   }
 
+  Widget _buildDownloadProgress(FluentThemeData theme) {
+    final percent = (_downloadProgress * 100).clamp(0, 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('正在下载更新', style: theme.typography.bodyStrong),
+        const SizedBox(height: 8),
+        ProgressBar(value: percent.toDouble()),
+        const SizedBox(height: 6),
+        Text(
+          '$percent%',
+          style: theme.typography.caption?.copyWith(color: theme.inactiveColor),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _downloadAndLaunchInstaller(
+    BuildContext context,
+    PlatformRelease release,
+  ) async {
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0;
+    });
+
+    try {
+      final result = await WindowsUpdateService.downloadInstaller(
+        release: release,
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) return;
+          setState(() {
+            _downloadProgress = (received / total).clamp(0, 1).toDouble();
+          });
+        },
+      );
+
+      if (!mounted || !context.mounted) return;
+      setState(() => _downloadProgress = 1);
+
+      await WindowsUpdateService.launchInstaller(result.installer);
+
+      if (!mounted || !context.mounted) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('安装器已启动'),
+          content: const Text('请按安装器提示完成更新，安装时可能需要关闭当前应用。'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+        duration: const Duration(seconds: 5),
+      );
+      Navigator.pop(context);
+    } catch (e) {
+      LoggerService.error('❌ Windows 更新失败', error: e);
+      if (!mounted || !context.mounted) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('更新失败'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          isLong: true,
+          onClose: close,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
+  }
+
+  void _runUpdateAction(
+    BuildContext context,
+    PlatformRelease release,
+    UpdateStrategy strategy,
+  ) {
+    switch (strategy) {
+      case UpdateStrategy.inPlace:
+        _downloadAndLaunchHelper(context, release);
+        return;
+      case UpdateStrategy.installer:
+        _downloadAndLaunchInstaller(context, release);
+        return;
+      case UpdateStrategy.copyLink:
+        _copyToClipboard(context, release.url);
+        return;
+    }
+  }
+
+  Future<void> _downloadAndLaunchHelper(
+    BuildContext context,
+    PlatformRelease release,
+  ) async {
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0;
+    });
+
+    try {
+      final result = await WindowsUpdateService.prepareInPlacePackage(
+        release: release,
+        currentVersion: widget.currentVersion,
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) return;
+          setState(() {
+            _downloadProgress = (received / total).clamp(0, 1).toDouble();
+          });
+        },
+      );
+
+      if (!mounted || !context.mounted) return;
+      setState(() => _downloadProgress = 1);
+
+      await WindowsUpdateService.launchHelper(result.journalFile);
+
+      if (!mounted || !context.mounted) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('更新准备完成'),
+          content: const Text('应用即将关闭并完成替换，随后会自动重启。'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+        duration: const Duration(seconds: 3),
+      );
+      Navigator.pop(context);
+      unawaited(
+        Future<void>.delayed(
+          const Duration(milliseconds: 500),
+          SystemNavigator.pop,
+        ),
+      );
+    } catch (e) {
+      LoggerService.error('❌ Windows 内部更新失败', error: e);
+      if (!mounted || !context.mounted) return;
+      displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('内部更新失败'),
+          content: Text('$e\n已保留安装器更新兜底入口。'),
+          severity: InfoBarSeverity.error,
+          isLong: true,
+          onClose: close,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
+  }
+
+  IconData _actionIcon(UpdateStrategy strategy) {
+    return switch (strategy) {
+      UpdateStrategy.inPlace => FluentIcons.sync,
+      UpdateStrategy.installer => FluentIcons.download,
+      UpdateStrategy.copyLink => FluentIcons.copy,
+    };
+  }
+
+  String _actionLabel(UpdateStrategy strategy) {
+    return switch (strategy) {
+      UpdateStrategy.inPlace => '立即更新',
+      UpdateStrategy.installer => '下载并安装',
+      UpdateStrategy.copyLink => '复制链接',
+    };
+  }
+
+  String _downloadHelpText(UpdateStrategy strategy) {
+    return switch (strategy) {
+      UpdateStrategy.inPlace => '点击下方按钮后，应用会下载并校验更新包，然后关闭并重启。',
+      UpdateStrategy.installer => '点击下方按钮后，应用会下载并校验安装器。',
+      UpdateStrategy.copyLink => '选择复制，或点击下方按钮复制后在浏览器打开',
+    };
+  }
+
   void _copyToClipboard(BuildContext context, String text) {
     Clipboard.setData(ClipboardData(text: text));
     LoggerService.info('📋 已复制下载链接');
@@ -346,26 +600,4 @@ class WinUIOTADialog extends StatelessWidget {
     );
   }
 
-  /// 显示 OTA 更新对话框
-  static Future<void> show(
-    BuildContext context, {
-    required OTA ota,
-    required String currentVersion,
-    required String platform,
-    VoidCallback? onDismiss,
-  }) {
-    final release = ota.getPlatformRelease(platform);
-    final isForceUpdate = release?.forceOta ?? false;
-
-    return showDialog(
-      context: context,
-      barrierDismissible: !isForceUpdate,
-      builder: (context) => WinUIOTADialog(
-        ota: ota,
-        currentVersion: currentVersion,
-        platform: platform,
-        onDismiss: onDismiss,
-      ),
-    );
-  }
 }
