@@ -81,6 +81,10 @@ Future<void> _replaceInstallDir(UpdatePlan plan) async {
       'Warning: Inno uninstaller files were not found in ${plan.backupDir.path}.',
     );
   }
+  // TEMP-TEST-FAILURE: force rollback after backup is created.
+  if (Platform.environment['LOVEACE_TEMP_TEST_FAILURE'] != '0') {
+    throw StateError('TEMP-TEST-FAILURE: fallback downgrade test');
+  }
   await plan.stagingDir.rename(plan.installDir.path);
 }
 
