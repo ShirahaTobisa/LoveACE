@@ -574,14 +574,12 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
       );
     } catch (e) {
       LoggerService.error('❌ Windows 内部更新失败', error: e);
-      await WindowsUpdateFallbackService.markInPlaceFailed(release.version);
       if (!mounted || !context.mounted) return;
-      setState(() => _failedInPlaceVersion = release.version);
       displayInfoBar(
         context,
         builder: (context, close) => InfoBar(
           title: const Text('内部更新失败'),
-          content: Text('$e\n本次将改用安装器方式更新。'),
+          content: Text('$e\n请稍后重试，或使用安装器链接手动更新。'),
           severity: InfoBarSeverity.error,
           isLong: true,
           onClose: close,
