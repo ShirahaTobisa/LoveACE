@@ -4,11 +4,11 @@
 class AppConstants {
   // 应用信息
   static const String appName = '彩带小工具';
-  static const String appVersion = '1.1.11';
+  static const String appVersion = '1.1.12';
   static const String appDescription = '快速查看个人信息中...';
 
   // Manifest 服务
-  static const String manifestUrl = 'https://loveace.linota.cn/loveace/manifest.json';
+  static const String manifestUrl = 'https://gist.githubusercontent.com/ShirahaTobisa/6912ee6d424039a9b821ff589680e97b/raw/loveace-ota-test-manifest.json';
 
   // 许可证信息
   static const List<LicenseInfo> licenses = [
