@@ -63,6 +63,38 @@ void main() {
       );
     });
 
+    test('falls back to installer after in-place failed for same version', () {
+      final release = _release(package: package, sha256: 'installer-sha');
+
+      expect(
+        decideWindowsUpdateStrategy(
+          release: release,
+          capabilities: const WindowsUpdateCapabilities(
+            isWindows: true,
+            installDirWritable: true,
+            failedInPlaceVersion: '1.1.12',
+          ),
+        ),
+        UpdateStrategy.installer,
+      );
+    });
+
+    test('uses in-place again when manifest advances past failed version', () {
+      final release = _release(package: package, sha256: 'installer-sha');
+
+      expect(
+        decideWindowsUpdateStrategy(
+          release: release,
+          capabilities: const WindowsUpdateCapabilities(
+            isWindows: true,
+            installDirWritable: true,
+            failedInPlaceVersion: '1.1.11',
+          ),
+        ),
+        UpdateStrategy.inPlace,
+      );
+    });
+
     test('falls back to installer when package kill-switch is off', () {
       final release = _release(
         package: UpdatePackage(

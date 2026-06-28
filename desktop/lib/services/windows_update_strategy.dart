@@ -9,10 +9,12 @@ enum UpdateStrategy {
 class WindowsUpdateCapabilities {
   final bool isWindows;
   final bool installDirWritable;
+  final String? failedInPlaceVersion;
 
   const WindowsUpdateCapabilities({
     required this.isWindows,
     required this.installDirWritable,
+    this.failedInPlaceVersion,
   });
 }
 
@@ -24,8 +26,14 @@ UpdateStrategy decideWindowsUpdateStrategy({
     return UpdateStrategy.copyLink;
   }
 
+  final canUseInstaller = release.url.isNotEmpty &&
+      (release.sha256.isNotEmpty || release.md5.isNotEmpty);
+  final hasFailedThisVersion =
+      capabilities.failedInPlaceVersion == release.version;
+
   final package = release.package;
-  if (capabilities.installDirWritable &&
+  if (!hasFailedThisVersion &&
+      capabilities.installDirWritable &&
       package != null &&
       package.enabled &&
       package.url.isNotEmpty &&
@@ -33,8 +41,7 @@ UpdateStrategy decideWindowsUpdateStrategy({
     return UpdateStrategy.inPlace;
   }
 
-  if (release.url.isNotEmpty &&
-      (release.sha256.isNotEmpty || release.md5.isNotEmpty)) {
+  if (canUseInstaller) {
     return UpdateStrategy.installer;
   }
 

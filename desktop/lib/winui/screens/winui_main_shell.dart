@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/manifest_provider.dart';
 import '../../services/analytics_service.dart';
+import '../../services/windows_update_fallback_service.dart';
 import '../../services/windows_update_journal.dart';
 import '../../services/windows_update_service.dart';
 import '../widgets/winui_background.dart';
@@ -97,17 +98,19 @@ class _WinUIMainShellState extends State<WinUIMainShell> {
     if (!mounted || journal == null) return;
 
     if (journal.state == WindowsUpdateJournalState.done) {
+      await WindowsUpdateFallbackService.clearInPlaceFailure();
       await WindowsUpdateService.clearJournal();
       await WindowsUpdateService.clearUpdateCache();
       return;
     }
 
+    await WindowsUpdateFallbackService.markInPlaceFailed(journal.toVersion);
     await WindowsUpdateService.clearJournal();
     if (!mounted) return;
 
     final message = switch (journal.state) {
-      WindowsUpdateJournalState.failed => '上次 Windows 更新失败，已尝试回滚并保留安装器更新入口。',
-      WindowsUpdateJournalState.pending => '上次 Windows 更新未完成，已保留安装器更新入口。',
+      WindowsUpdateJournalState.failed => '上次 Windows 更新失败，已尝试回滚。本次将改用安装器方式更新。',
+      WindowsUpdateJournalState.pending => '上次 Windows 更新未完成。本次将改用安装器方式更新。',
       WindowsUpdateJournalState.done => 'Windows 更新已完成。',
     };
 

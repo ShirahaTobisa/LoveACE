@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../models/manifest_model.dart';
 import '../../services/analytics_service.dart';
 import '../../services/logger_service.dart';
+import '../../services/windows_update_fallback_service.dart';
 import '../../services/windows_update_service.dart';
 import '../../services/windows_update_strategy.dart';
 
@@ -58,6 +59,7 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
   bool _isDownloading = false;
   double _downloadProgress = 0;
   bool _installDirWritable = false;
+  String? _failedInPlaceVersion;
 
   @override
   void initState() {
@@ -67,8 +69,22 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
 
   Future<void> _loadCapabilities() async {
     final writable = await WindowsUpdateService.isInstallDirectoryWritable();
+    final failedInPlaceVersion =
+        await WindowsUpdateFallbackService.failedInPlaceVersion();
+    final release = widget.ota.getPlatformRelease(widget.platform);
+    final effectiveFailedInPlaceVersion =
+        failedInPlaceVersion != null && failedInPlaceVersion != release?.version
+            ? null
+            : failedInPlaceVersion;
+    if (failedInPlaceVersion != null &&
+        effectiveFailedInPlaceVersion == null) {
+      await WindowsUpdateFallbackService.clearInPlaceFailure();
+    }
     if (!mounted) return;
-    setState(() => _installDirWritable = writable);
+    setState(() {
+      _installDirWritable = writable;
+      _failedInPlaceVersion = effectiveFailedInPlaceVersion;
+    });
   }
 
   @override
@@ -85,8 +101,12 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
       capabilities: WindowsUpdateCapabilities(
         isWindows: WindowsUpdateService.isSupported,
         installDirWritable: _installDirWritable,
+        failedInPlaceVersion: _failedInPlaceVersion,
       ),
     );
+    final usingInstallerFallback =
+        strategy == UpdateStrategy.installer &&
+        _failedInPlaceVersion == release.version;
 
     return ContentDialog(
       title: Row(
@@ -139,6 +159,10 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
             const SizedBox(height: 10),
             _buildDownloadLinkBox(context, theme, release.url, strategy),
             const SizedBox(height: 20),
+            if (usingInstallerFallback) ...[
+              _buildInstallerFallbackNotice(),
+              const SizedBox(height: 20),
+            ],
             if (release.sha256.isNotEmpty)
               _buildHashBox(theme, 'SHA256 校验值', release.sha256)
             else if (release.md5.isNotEmpty)
@@ -403,6 +427,15 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
     );
   }
 
+  Widget _buildInstallerFallbackNotice() {
+    return const InfoBar(
+      title: Text('改用安装器更新'),
+      content: Text('上次内部替换更新未完成，本次将下载安装器并启动安装流程。'),
+      severity: InfoBarSeverity.warning,
+      isLong: true,
+    );
+  }
+
   Widget _buildDownloadProgress(FluentThemeData theme) {
     final percent = (_downloadProgress * 100).clamp(0, 100).round();
     return Column(
@@ -541,12 +574,14 @@ class _WinUIOTADialogState extends State<WinUIOTADialog> {
       );
     } catch (e) {
       LoggerService.error('❌ Windows 内部更新失败', error: e);
+      await WindowsUpdateFallbackService.markInPlaceFailed(release.version);
       if (!mounted || !context.mounted) return;
+      setState(() => _failedInPlaceVersion = release.version);
       displayInfoBar(
         context,
         builder: (context, close) => InfoBar(
           title: const Text('内部更新失败'),
-          content: Text('$e\n已保留安装器更新兜底入口。'),
+          content: Text('$e\n本次将改用安装器方式更新。'),
           severity: InfoBarSeverity.error,
           isLong: true,
           onClose: close,
