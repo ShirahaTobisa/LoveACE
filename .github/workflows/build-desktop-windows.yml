@@ -87,6 +87,13 @@ jobs:
           dart compile exe bin\loveace_updater.dart -o ..\..\build\loveace_updater.exe
           Pop-Location
 
+      - name: Analyze updater helper
+        shell: pwsh
+        run: |
+          Push-Location windows\updater
+          dart analyze
+          Pop-Location
+
       - name: Analyze desktop project
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
