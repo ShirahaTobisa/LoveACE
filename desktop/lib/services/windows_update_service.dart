@@ -248,6 +248,34 @@ class WindowsUpdateService {
     await _deleteIfExists(await _journalFile());
   }
 
+  static Future<void> clearUpdateCache() async {
+    if (!Platform.isWindows) return;
+    try {
+      final cacheDir = await getTemporaryDirectory();
+      final updatesDir = Directory(p.join(cacheDir.path, 'loveace_updates'));
+      if (!await updatesDir.exists()) return;
+      await for (final entity in updatesDir.list(followLinks: false)) {
+        try {
+          if (entity is Directory) {
+            await entity.delete(recursive: true);
+          } else {
+            await entity.delete();
+          }
+        } catch (e) {
+          LoggerService.warning(
+            '⚠️ 清理 Windows OTA 缓存失败: ${entity.path}',
+            error: e,
+          );
+        }
+      }
+    } catch (e) {
+      LoggerService.warning(
+        '⚠️ 读取 Windows OTA 缓存目录失败',
+        error: e,
+      );
+    }
+  }
+
   static Future<String> _verifyInstaller(
     File installer,
     PlatformRelease release,

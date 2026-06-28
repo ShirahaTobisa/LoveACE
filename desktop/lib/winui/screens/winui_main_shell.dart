@@ -98,6 +98,7 @@ class _WinUIMainShellState extends State<WinUIMainShell> {
 
     if (journal.state == WindowsUpdateJournalState.done) {
       await WindowsUpdateService.clearJournal();
+      await WindowsUpdateService.clearUpdateCache();
       return;
     }
 
